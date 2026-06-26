@@ -73,6 +73,7 @@ export type Database = {
           project_id: string
           score_reasons: Json | null
           start_sec: number
+          strategy: Json | null
           thumbnail_url: string | null
           title: string
           updated_at: string
@@ -93,6 +94,7 @@ export type Database = {
           project_id: string
           score_reasons?: Json | null
           start_sec?: number
+          strategy?: Json | null
           thumbnail_url?: string | null
           title: string
           updated_at?: string
@@ -113,6 +115,7 @@ export type Database = {
           project_id?: string
           score_reasons?: Json | null
           start_sec?: number
+          strategy?: Json | null
           thumbnail_url?: string | null
           title?: string
           updated_at?: string
