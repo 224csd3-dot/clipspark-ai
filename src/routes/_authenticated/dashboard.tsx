@@ -144,7 +144,7 @@ function StatCard({
   progress,
   cta,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   label: string;
   value: string;
   sub?: string;
