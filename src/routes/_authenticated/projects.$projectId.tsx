@@ -210,6 +210,18 @@ function ProcessingTimeline({ currentStep, progress }: { currentStep: string | n
   );
 }
 
+type ClipStrategy = {
+  retention_pct: number;
+  hook_strength: "Weak" | "Solid" | "Strong" | "Elite";
+  story_arc: "Incomplete" | "Building" | "Completed";
+  platform: string;
+  upload_time: string;
+  audience: string;
+  watch_time_sec: number;
+  thumbnail: string;
+  narrative: string;
+};
+
 type Clip = {
   id: string;
   title: string;
@@ -219,6 +231,7 @@ type Clip = {
   emotion: string | null;
   viral_score: number;
   score_reasons: any;
+  strategy: any;
   start_sec: number;
   end_sec: number;
   thumbnail_url: string | null;
