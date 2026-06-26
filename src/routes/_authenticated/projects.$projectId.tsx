@@ -434,7 +434,7 @@ function StrategistDrawer({ clip, onClose }: { clip: Clip; onClose: () => void }
   );
 }
 
-function ClipCard({ clip, onFav, onDelete }: { clip: Clip; onFav: () => void; onDelete: () => void }) {
+function ClipCard({ clip, onFav, onDelete, onOpen }: { clip: Clip; onFav: () => void; onDelete: () => void; onOpen: () => void }) {
   const dur = clip.end_sec - clip.start_sec;
   const reasons = (clip.score_reasons as string[] | null) ?? [];
   return (
