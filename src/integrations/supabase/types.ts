@@ -14,16 +14,250 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      brand_kits: {
+        Row: {
+          accent_color: string | null
+          caption_style: string | null
+          created_at: string
+          font_family: string | null
+          id: string
+          is_default: boolean
+          logo_url: string | null
+          name: string
+          primary_color: string | null
+          updated_at: string
+          user_id: string
+          watermark_url: string | null
+        }
+        Insert: {
+          accent_color?: string | null
+          caption_style?: string | null
+          created_at?: string
+          font_family?: string | null
+          id?: string
+          is_default?: boolean
+          logo_url?: string | null
+          name?: string
+          primary_color?: string | null
+          updated_at?: string
+          user_id: string
+          watermark_url?: string | null
+        }
+        Update: {
+          accent_color?: string | null
+          caption_style?: string | null
+          created_at?: string
+          font_family?: string | null
+          id?: string
+          is_default?: boolean
+          logo_url?: string | null
+          name?: string
+          primary_color?: string | null
+          updated_at?: string
+          user_id?: string
+          watermark_url?: string | null
+        }
+        Relationships: []
+      }
+      clips: {
+        Row: {
+          aspect_ratio: string
+          created_at: string
+          description: string | null
+          emotion: string | null
+          end_sec: number
+          favorite: boolean
+          hashtags: string[] | null
+          hook: string | null
+          id: string
+          project_id: string
+          score_reasons: Json | null
+          start_sec: number
+          thumbnail_url: string | null
+          title: string
+          updated_at: string
+          user_id: string
+          video_url: string | null
+          viral_score: number
+        }
+        Insert: {
+          aspect_ratio?: string
+          created_at?: string
+          description?: string | null
+          emotion?: string | null
+          end_sec?: number
+          favorite?: boolean
+          hashtags?: string[] | null
+          hook?: string | null
+          id?: string
+          project_id: string
+          score_reasons?: Json | null
+          start_sec?: number
+          thumbnail_url?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+          video_url?: string | null
+          viral_score?: number
+        }
+        Update: {
+          aspect_ratio?: string
+          created_at?: string
+          description?: string | null
+          emotion?: string | null
+          end_sec?: number
+          favorite?: boolean
+          hashtags?: string[] | null
+          hook?: string | null
+          id?: string
+          project_id?: string
+          score_reasons?: Json | null
+          start_sec?: number
+          thumbnail_url?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+          video_url?: string | null
+          viral_score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clips_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          credits_remaining: number
+          credits_total: number
+          display_name: string | null
+          id: string
+          plan: Database["public"]["Enums"]["subscription_plan"]
+          storage_used_mb: number
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          credits_remaining?: number
+          credits_total?: number
+          display_name?: string | null
+          id: string
+          plan?: Database["public"]["Enums"]["subscription_plan"]
+          storage_used_mb?: number
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          credits_remaining?: number
+          credits_total?: number
+          display_name?: string | null
+          id?: string
+          plan?: Database["public"]["Enums"]["subscription_plan"]
+          storage_used_mb?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      projects: {
+        Row: {
+          channel: string | null
+          created_at: string
+          current_step: string | null
+          duration_sec: number | null
+          id: string
+          language: string | null
+          progress: number
+          source_type: string
+          source_url: string | null
+          status: Database["public"]["Enums"]["project_status"]
+          template: string | null
+          thumbnail_url: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          channel?: string | null
+          created_at?: string
+          current_step?: string | null
+          duration_sec?: number | null
+          id?: string
+          language?: string | null
+          progress?: number
+          source_type?: string
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["project_status"]
+          template?: string | null
+          thumbnail_url?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          channel?: string | null
+          created_at?: string
+          current_step?: string | null
+          duration_sec?: number | null
+          id?: string
+          language?: string | null
+          progress?: number
+          source_type?: string
+          source_url?: string | null
+          status?: Database["public"]["Enums"]["project_status"]
+          template?: string | null
+          thumbnail_url?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
+      project_status: "pending" | "processing" | "completed" | "failed"
+      subscription_plan: "free" | "starter" | "pro" | "business" | "enterprise"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +384,10 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+      project_status: ["pending", "processing", "completed", "failed"],
+      subscription_plan: ["free", "starter", "pro", "business", "enterprise"],
+    },
   },
 } as const
