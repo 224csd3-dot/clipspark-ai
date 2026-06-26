@@ -240,6 +240,7 @@ type Clip = {
 
 function ClipsGrid({ clips }: { clips: Clip[] }) {
   const queryClient = useQueryClient();
+  const [openClip, setOpenClip] = useState<Clip | null>(null);
 
   async function toggleFav(clip: Clip) {
     await supabase.from("clips").update({ favorite: !clip.favorite }).eq("id", clip.id);
@@ -252,9 +253,13 @@ function ClipsGrid({ clips }: { clips: Clip[] }) {
     toast.success("Clip deleted");
   }
 
+  const topClip = clips[0];
+
   return (
     <div className="mt-10">
-      <div className="mb-4 flex items-center justify-between">
+      {topClip && <StrategistHero clip={topClip} onOpen={() => setOpenClip(topClip)} />}
+
+      <div className="mb-4 mt-10 flex items-center justify-between">
         <h2 className="font-display text-xl font-medium tracking-tight">
           {clips.length} clips ready
         </h2>
@@ -263,8 +268,167 @@ function ClipsGrid({ clips }: { clips: Clip[] }) {
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {clips.map((c) => (
-          <ClipCard key={c.id} clip={c} onFav={() => toggleFav(c)} onDelete={() => deleteClip(c)} />
+          <ClipCard
+            key={c.id}
+            clip={c}
+            onFav={() => toggleFav(c)}
+            onDelete={() => deleteClip(c)}
+            onOpen={() => setOpenClip(c)}
+          />
         ))}
+      </div>
+
+      {openClip && <StrategistDrawer clip={openClip} onClose={() => setOpenClip(null)} />}
+    </div>
+  );
+}
+
+function getStrategy(clip: Clip): ClipStrategy {
+  const s = (clip.strategy ?? {}) as Partial<ClipStrategy>;
+  return {
+    retention_pct: s.retention_pct ?? 88,
+    hook_strength: s.hook_strength ?? "Strong",
+    story_arc: s.story_arc ?? "Completed",
+    platform: s.platform ?? "TikTok",
+    upload_time: s.upload_time ?? "8 PM",
+    audience: s.audience ?? "Entrepreneurs",
+    watch_time_sec: s.watch_time_sec ?? 28,
+    thumbnail: s.thumbnail ?? "Included",
+    narrative: s.narrative ?? "Opens with a sharp curiosity gap in the first 3 seconds and holds emotional intensity through the payoff.",
+  };
+}
+
+function StrategistHero({ clip, onOpen }: { clip: Clip; onOpen: () => void }) {
+  const st = getStrategy(clip);
+  return (
+    <div className="glass-strong relative overflow-hidden rounded-3xl p-7 sm:p-9">
+      <div className="absolute -right-24 -top-24 size-72 rounded-full bg-[#7C3AED]/25 blur-3xl" />
+      <div className="absolute -bottom-24 -left-24 size-72 rounded-full bg-[#2563EB]/20 blur-3xl" />
+      <div className="absolute inset-0 -z-10 bg-grid opacity-25" />
+
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#7C3AED]/40 bg-[#7C3AED]/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#C4B5FD]">
+          <Brain className="size-3" /> AI Content Strategist
+        </span>
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Top pick</span>
+      </div>
+
+      <div className="mt-5 grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
+        <div className="min-w-0">
+          <h3 className="font-display text-2xl font-medium tracking-tight sm:text-3xl">
+            {clip.hook ?? clip.title}
+          </h3>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+            This clip has the highest chance of going viral — {st.narrative}
+          </p>
+          <button
+            onClick={onOpen}
+            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition-transform hover:scale-[1.02]"
+          >
+            See full strategy <TrendingUp className="size-4" />
+          </button>
+        </div>
+
+        <div className="relative grid size-36 shrink-0 place-items-center self-center lg:self-end">
+          <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
+            <circle
+              cx="50" cy="50" r="45" fill="none"
+              stroke="url(#sg)" strokeWidth="6" strokeLinecap="round"
+              strokeDasharray={`${(clip.viral_score / 100) * 283} 283`}
+            />
+            <defs>
+              <linearGradient id="sg">
+                <stop offset="0%" stopColor="#10B981" />
+                <stop offset="100%" stopColor="#7C3AED" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <div className="text-center">
+            <div className="font-display text-4xl font-medium tabular-nums">{clip.viral_score}</div>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Virality</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Metric icon={<Activity className="size-3.5" />} label="Retention" value={`${st.retention_pct}%`} />
+        <Metric icon={<Zap className="size-3.5" />} label="Hook" value={st.hook_strength} />
+        <Metric icon={<Sparkles className="size-3.5" />} label="Emotion" value={clip.emotion ?? "—"} />
+        <Metric icon={<Target className="size-3.5" />} label="Platform" value={st.platform} />
+        <Metric icon={<Clock className="size-3.5" />} label="Best post" value={st.upload_time} />
+      </div>
+    </div>
+  );
+}
+
+function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        {icon} {label}
+      </div>
+      <div className="mt-1 font-display text-sm font-medium">{value}</div>
+    </div>
+  );
+}
+
+function StrategistDrawer({ clip, onClose }: { clip: Clip; onClose: () => void }) {
+  const st = getStrategy(clip);
+  const rows: Array<[React.ReactNode, string, string]> = [
+    [<Sparkles className="size-3.5" />, "Virality Score", `${clip.viral_score}/100`],
+    [<Activity className="size-3.5" />, "Retention Prediction", `${st.retention_pct}%`],
+    [<Zap className="size-3.5" />, "Hook Strength", st.hook_strength],
+    [<Sparkles className="size-3.5" />, "Emotion", clip.emotion ?? "—"],
+    [<TrendingUp className="size-3.5" />, "Story Arc", st.story_arc],
+    [<Target className="size-3.5" />, "Recommended Platform", st.platform],
+    [<Clock className="size-3.5" />, "Best Upload Time", st.upload_time],
+    [<Users className="size-3.5" />, "Target Audience", st.audience],
+    [<Clock className="size-3.5" />, "Expected Watch Time", `${st.watch_time_sec} seconds`],
+    [<ImageIcon className="size-3.5" />, "Suggested Thumbnail", st.thumbnail],
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div
+        className="relative ml-auto flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/10 bg-[#0A0A0B] p-7"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#7C3AED]/40 bg-[#7C3AED]/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-[#C4B5FD]">
+              <Brain className="size-3" /> Strategist Report
+            </span>
+            <h3 className="mt-3 font-display text-xl font-medium tracking-tight">
+              {clip.hook ?? clip.title}
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="grid size-8 place-items-center rounded-lg border border-white/8 hover:bg-white/5"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <p className="mt-4 rounded-xl border border-white/8 bg-white/[0.03] p-4 text-sm leading-relaxed text-muted-foreground">
+          {st.narrative}
+        </p>
+
+        <div className="mt-6 divide-y divide-white/5 rounded-xl border border-white/8 bg-white/[0.02]">
+          {rows.map(([icon, label, value]) => (
+            <div key={label} className="flex items-center justify-between px-4 py-3 text-sm">
+              <span className="flex items-center gap-2 text-muted-foreground">{icon} {label}</span>
+              <span className="font-display font-medium">{value}</span>
+            </div>
+          ))}
+        </div>
+
+        <button className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-4 py-3 text-sm font-semibold text-white hover:bg-[#8B5CF6]">
+          <Download className="size-4" /> Export this clip
+        </button>
       </div>
     </div>
   );
