@@ -451,6 +451,56 @@ function StrategistDrawer({ clip, onClose }: { clip: Clip; onClose: () => void }
           ))}
         </div>
 
+        <div className="mt-7">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="flex items-center gap-2 text-sm font-semibold">
+              <ImageIcon className="size-4 text-[#A78BFA]" /> AI Thumbnails
+            </h4>
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">3 styles</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {st.thumbnails.map((t) => (
+              <ThumbnailPreview key={t.style} thumb={t} />
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-7">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="flex items-center gap-2 text-sm font-semibold">
+              <Wand2 className="size-4 text-[#10B981]" /> AI Hook Improver
+            </h4>
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Stronger openers</span>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-white/[0.02]">
+            <div className="border-b border-white/5 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Original</p>
+              <p className="mt-1 text-sm text-muted-foreground/80 line-clamp-2">{clip.hook ?? clip.title}</p>
+            </div>
+            <ul className="divide-y divide-white/5">
+              {st.hook_alternatives.map((h, i) => (
+                <li key={i} className="group flex items-start gap-3 px-4 py-3">
+                  <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7C3AED] to-[#2563EB] text-[10px] font-bold text-white">
+                    {i + 1}
+                  </span>
+                  <p className="flex-1 text-sm font-medium leading-snug">{h}</p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(h);
+                      toast.success("Hook copied");
+                    }}
+                    className="opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label="Copy hook"
+                  >
+                    <Copy className="size-3.5 text-muted-foreground hover:text-foreground" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+
         <button className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-4 py-3 text-sm font-semibold text-white hover:bg-[#8B5CF6]">
           <Download className="size-4" /> Export this clip
         </button>
