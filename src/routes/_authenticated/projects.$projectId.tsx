@@ -481,7 +481,14 @@ function ClipCard({ clip, onFav, onDelete, onOpen }: { clip: Clip; onFav: () => 
           </p>
         )}
 
-        <div className="mt-3 flex items-center gap-1">
+        <button
+          onClick={onOpen}
+          className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#7C3AED]/30 bg-[#7C3AED]/10 px-3 py-1.5 text-[11px] font-semibold text-[#C4B5FD] transition-colors hover:bg-[#7C3AED]/20"
+        >
+          <Brain className="size-3" /> AI Strategy
+        </button>
+
+        <div className="mt-2 flex items-center gap-1">
           <button className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#7C3AED] px-3 py-2 text-xs font-semibold text-white hover:bg-[#8B5CF6]">
             <Download className="size-3.5" /> Export
           </button>
