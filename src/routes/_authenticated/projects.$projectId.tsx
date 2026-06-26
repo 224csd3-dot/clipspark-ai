@@ -610,6 +610,37 @@ function IconBtn({
   );
 }
 
+function ThumbnailPreview({ thumb }: { thumb: ThumbStyle }) {
+  const isBold = thumb.style === "Bold" || thumb.style === "MrBeast";
+  return (
+    <div className="group cursor-pointer">
+      <div className={cn(
+        "relative aspect-[9/16] overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br p-2.5 transition-transform group-hover:scale-[1.03]",
+        thumb.bg
+      )}>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+        <div className="absolute right-2 top-2 grid size-7 place-items-center rounded-full bg-black/40 backdrop-blur">
+          <Play className="size-3 fill-white text-white" />
+        </div>
+        <div className="absolute inset-x-2 bottom-2">
+          <p
+            className={cn(
+              "leading-tight text-white drop-shadow-lg",
+              isBold ? "text-[11px] font-black uppercase" : "text-[10px] font-semibold"
+            )}
+            style={isBold ? { color: thumb.accent, textShadow: "1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000" } : undefined}
+          >
+            {thumb.headline}
+          </p>
+        </div>
+      </div>
+      <p className="mt-1.5 text-center text-[10px] font-medium uppercase tracking-widest text-muted-foreground group-hover:text-foreground">
+        {thumb.style}
+      </p>
+    </div>
+  );
+}
+
 function generateMockClips(projectId: string, userId: string) {
   const titles = [
     "The one mistake every founder makes",
