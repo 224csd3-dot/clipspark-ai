@@ -672,6 +672,13 @@ function generateMockClips(projectId: string, userId: string) {
   const audiences = ["Entrepreneurs", "Creators", "Marketers", "Investors", "Students", "Engineers"];
   const hookStrengths = ["Solid", "Strong", "Elite"] as const;
   const arcs = ["Building", "Completed"] as const;
+  const narratives = [
+    "Opens with a curiosity gap in the first 3 seconds and holds emotional intensity through the payoff.",
+    "Pattern-interrupt opener followed by a tight 3-beat story arc, ending on a memorable punchline.",
+    "Specific number + bold claim in the first frame; pacing tightens every 4 seconds.",
+    "Confessional tone hooks identity-driven viewers, then resolves with an actionable takeaway.",
+    "Visual + verbal mismatch creates a stop-scroll moment; payoff lands at the 70% mark.",
+  ];
   const hookTemplates = [
     (t: string) => `Nobody tells you this about ${t.toLowerCase().replace(/^the |^a |^this /, "")}`,
     (_t: string) => `You're wasting hours every week — here's why`,
