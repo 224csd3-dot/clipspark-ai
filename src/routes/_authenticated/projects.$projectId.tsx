@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Check, Loader2, Download, Heart, Edit3, Trash2, Copy, Sparkles, TrendingUp, Brain, Clock, Users, Target, Image as ImageIcon, Zap, Activity, X } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Download, Heart, Edit3, Trash2, Copy, Sparkles, TrendingUp, Brain, Clock, Users, Target, Image as ImageIcon, Zap, Activity, X, Wand2, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -210,6 +210,13 @@ function ProcessingTimeline({ currentStep, progress }: { currentStep: string | n
   );
 }
 
+type ThumbStyle = {
+  style: "Bold" | "Minimal" | "MrBeast" | "Podcast" | "Business" | "Dark Theme";
+  headline: string;
+  bg: string;
+  accent: string;
+};
+
 type ClipStrategy = {
   retention_pct: number;
   hook_strength: "Weak" | "Solid" | "Strong" | "Elite";
@@ -220,6 +227,8 @@ type ClipStrategy = {
   watch_time_sec: number;
   thumbnail: string;
   narrative: string;
+  hook_alternatives: string[];
+  thumbnails: ThumbStyle[];
 };
 
 type Clip = {
@@ -285,6 +294,7 @@ function ClipsGrid({ clips }: { clips: Clip[] }) {
 
 function getStrategy(clip: Clip): ClipStrategy {
   const s = (clip.strategy ?? {}) as Partial<ClipStrategy>;
+  const base = clip.hook ?? clip.title;
   return {
     retention_pct: s.retention_pct ?? 88,
     hook_strength: s.hook_strength ?? "Strong",
@@ -295,7 +305,22 @@ function getStrategy(clip: Clip): ClipStrategy {
     watch_time_sec: s.watch_time_sec ?? 28,
     thumbnail: s.thumbnail ?? "Included",
     narrative: s.narrative ?? "Opens with a sharp curiosity gap in the first 3 seconds and holds emotional intensity through the payoff.",
+    hook_alternatives: s.hook_alternatives ?? [
+      "Nobody tells you this…",
+      "You're wasting hours every week doing this",
+      "This one trick changed everything",
+    ],
+    thumbnails: s.thumbnails ?? defaultThumbs(base),
   };
+}
+
+function defaultThumbs(headline: string): ThumbStyle[] {
+  const short = headline.length > 38 ? headline.slice(0, 36) + "…" : headline;
+  return [
+    { style: "Bold", headline: short.toUpperCase(), bg: "from-[#7C3AED] to-[#2563EB]", accent: "#FDE047" },
+    { style: "MrBeast", headline: short, bg: "from-[#DC2626] to-[#7C2D12]", accent: "#FACC15" },
+    { style: "Minimal", headline: short, bg: "from-[#0A0A0B] to-[#1A1A1F]", accent: "#FFFFFF" },
+  ];
 }
 
 function StrategistHero({ clip, onOpen }: { clip: Clip; onOpen: () => void }) {
@@ -426,6 +451,56 @@ function StrategistDrawer({ clip, onClose }: { clip: Clip; onClose: () => void }
           ))}
         </div>
 
+        <div className="mt-7">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="flex items-center gap-2 text-sm font-semibold">
+              <ImageIcon className="size-4 text-[#A78BFA]" /> AI Thumbnails
+            </h4>
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">3 styles</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {st.thumbnails.map((t) => (
+              <ThumbnailPreview key={t.style} thumb={t} />
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-7">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="flex items-center gap-2 text-sm font-semibold">
+              <Wand2 className="size-4 text-[#10B981]" /> AI Hook Improver
+            </h4>
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Stronger openers</span>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-white/[0.02]">
+            <div className="border-b border-white/5 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Original</p>
+              <p className="mt-1 text-sm text-muted-foreground/80 line-clamp-2">{clip.hook ?? clip.title}</p>
+            </div>
+            <ul className="divide-y divide-white/5">
+              {st.hook_alternatives.map((h, i) => (
+                <li key={i} className="group flex items-start gap-3 px-4 py-3">
+                  <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7C3AED] to-[#2563EB] text-[10px] font-bold text-white">
+                    {i + 1}
+                  </span>
+                  <p className="flex-1 text-sm font-medium leading-snug">{h}</p>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(h);
+                      toast.success("Hook copied");
+                    }}
+                    className="opacity-0 transition-opacity group-hover:opacity-100"
+                    aria-label="Copy hook"
+                  >
+                    <Copy className="size-3.5 text-muted-foreground hover:text-foreground" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+
         <button className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-[#7C3AED] px-4 py-3 text-sm font-semibold text-white hover:bg-[#8B5CF6]">
           <Download className="size-4" /> Export this clip
         </button>
@@ -535,6 +610,37 @@ function IconBtn({
   );
 }
 
+function ThumbnailPreview({ thumb }: { thumb: ThumbStyle }) {
+  const isBold = thumb.style === "Bold" || thumb.style === "MrBeast";
+  return (
+    <div className="group cursor-pointer">
+      <div className={cn(
+        "relative aspect-[9/16] overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br p-2.5 transition-transform group-hover:scale-[1.03]",
+        thumb.bg
+      )}>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+        <div className="absolute right-2 top-2 grid size-7 place-items-center rounded-full bg-black/40 backdrop-blur">
+          <Play className="size-3 fill-white text-white" />
+        </div>
+        <div className="absolute inset-x-2 bottom-2">
+          <p
+            className={cn(
+              "leading-tight text-white drop-shadow-lg",
+              isBold ? "text-[11px] font-black uppercase" : "text-[10px] font-semibold"
+            )}
+            style={isBold ? { color: thumb.accent, textShadow: "1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000" } : undefined}
+          >
+            {thumb.headline}
+          </p>
+        </div>
+      </div>
+      <p className="mt-1.5 text-center text-[10px] font-medium uppercase tracking-widest text-muted-foreground group-hover:text-foreground">
+        {thumb.style}
+      </p>
+    </div>
+  );
+}
+
 function generateMockClips(projectId: string, userId: string) {
   const titles = [
     "The one mistake every founder makes",
@@ -573,6 +679,24 @@ function generateMockClips(projectId: string, userId: string) {
     "Confessional tone hooks identity-driven viewers, then resolves with an actionable takeaway.",
     "Visual + verbal mismatch creates a stop-scroll moment; payoff lands at the 70% mark.",
   ];
+  const hookTemplates = [
+    (t: string) => `Nobody tells you this about ${t.toLowerCase().replace(/^the |^a |^this /, "")}`,
+    (_t: string) => `You're wasting hours every week — here's why`,
+    (_t: string) => `This one trick changed everything`,
+    (t: string) => `Stop doing ${t.toLowerCase().split(" ").slice(-2).join(" ")} — do this instead`,
+    (_t: string) => `What if I told you the opposite is true?`,
+    (t: string) => `${t.split(" ")[0]} did WHAT?`,
+    (_t: string) => `I tried this for 30 days. The result shocked me.`,
+  ];
+  const thumbStylePool: ThumbStyle["style"][] = ["Bold", "Minimal", "MrBeast", "Podcast", "Business", "Dark Theme"];
+  const thumbPresets: Record<ThumbStyle["style"], { bg: string; accent: string }> = {
+    Bold: { bg: "from-[#7C3AED] to-[#2563EB]", accent: "#FDE047" },
+    MrBeast: { bg: "from-[#DC2626] to-[#7C2D12]", accent: "#FACC15" },
+    Minimal: { bg: "from-[#FAFAFA] to-[#D4D4D8]", accent: "#0A0A0B" },
+    Podcast: { bg: "from-[#1E1B4B] to-[#0F172A]", accent: "#A78BFA" },
+    Business: { bg: "from-[#0F172A] to-[#1E293B]", accent: "#10B981" },
+    "Dark Theme": { bg: "from-[#09090B] to-[#1F1F23]", accent: "#FFFFFF" },
+  };
 
   return titles.map((t, i) => {
     const start = 60 + i * 70;
@@ -581,6 +705,16 @@ function generateMockClips(projectId: string, userId: string) {
     const reasons = [...reasonBank].sort(() => 0.5 - Math.random()).slice(0, 3);
     const hashtags = [...tagBank].sort(() => 0.5 - Math.random()).slice(0, 4);
     const retention = 70 + Math.floor(Math.random() * 28);
+    const shuffledHooks = [...hookTemplates].sort(() => 0.5 - Math.random()).slice(0, 3);
+    const hook_alternatives = shuffledHooks.map((fn) => fn(t));
+    const shuffledStyles = [...thumbStylePool].sort(() => 0.5 - Math.random()).slice(0, 3);
+    const short = t.length > 38 ? t.slice(0, 36) + "…" : t;
+    const thumbnails: ThumbStyle[] = shuffledStyles.map((style) => ({
+      style,
+      headline: style === "Bold" || style === "MrBeast" ? short.toUpperCase() : short,
+      bg: thumbPresets[style].bg,
+      accent: thumbPresets[style].accent,
+    }));
     return {
       project_id: projectId,
       user_id: userId,
@@ -601,6 +735,8 @@ function generateMockClips(projectId: string, userId: string) {
         watch_time_sec: Math.floor((end - start) * (retention / 100)),
         thumbnail: "Included",
         narrative: narratives[i % narratives.length],
+        hook_alternatives,
+        thumbnails,
       },
       start_sec: start,
       end_sec: end,
