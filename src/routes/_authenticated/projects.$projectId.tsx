@@ -672,13 +672,24 @@ function generateMockClips(projectId: string, userId: string) {
   const audiences = ["Entrepreneurs", "Creators", "Marketers", "Investors", "Students", "Engineers"];
   const hookStrengths = ["Solid", "Strong", "Elite"] as const;
   const arcs = ["Building", "Completed"] as const;
-  const narratives = [
-    "Opens with a curiosity gap in the first 3 seconds and holds emotional intensity through the payoff.",
-    "Pattern-interrupt opener followed by a tight 3-beat story arc, ending on a memorable punchline.",
-    "Specific number + bold claim in the first frame; pacing tightens every 4 seconds.",
-    "Confessional tone hooks identity-driven viewers, then resolves with an actionable takeaway.",
-    "Visual + verbal mismatch creates a stop-scroll moment; payoff lands at the 70% mark.",
+  const hookTemplates = [
+    (t: string) => `Nobody tells you this about ${t.toLowerCase().replace(/^the |^a |^this /, "")}`,
+    (_t: string) => `You're wasting hours every week — here's why`,
+    (_t: string) => `This one trick changed everything`,
+    (t: string) => `Stop doing ${t.toLowerCase().split(" ").slice(-2).join(" ")} — do this instead`,
+    (_t: string) => `What if I told you the opposite is true?`,
+    (t: string) => `${t.split(" ")[0]} did WHAT?`,
+    (_t: string) => `I tried this for 30 days. The result shocked me.`,
   ];
+  const thumbStylePool: ThumbStyle["style"][] = ["Bold", "Minimal", "MrBeast", "Podcast", "Business", "Dark Theme"];
+  const thumbPresets: Record<ThumbStyle["style"], { bg: string; accent: string }> = {
+    Bold: { bg: "from-[#7C3AED] to-[#2563EB]", accent: "#FDE047" },
+    MrBeast: { bg: "from-[#DC2626] to-[#7C2D12]", accent: "#FACC15" },
+    Minimal: { bg: "from-[#FAFAFA] to-[#D4D4D8]", accent: "#0A0A0B" },
+    Podcast: { bg: "from-[#1E1B4B] to-[#0F172A]", accent: "#A78BFA" },
+    Business: { bg: "from-[#0F172A] to-[#1E293B]", accent: "#10B981" },
+    "Dark Theme": { bg: "from-[#09090B] to-[#1F1F23]", accent: "#FFFFFF" },
+  };
 
   return titles.map((t, i) => {
     const start = 60 + i * 70;
@@ -687,6 +698,16 @@ function generateMockClips(projectId: string, userId: string) {
     const reasons = [...reasonBank].sort(() => 0.5 - Math.random()).slice(0, 3);
     const hashtags = [...tagBank].sort(() => 0.5 - Math.random()).slice(0, 4);
     const retention = 70 + Math.floor(Math.random() * 28);
+    const shuffledHooks = [...hookTemplates].sort(() => 0.5 - Math.random()).slice(0, 3);
+    const hook_alternatives = shuffledHooks.map((fn) => fn(t));
+    const shuffledStyles = [...thumbStylePool].sort(() => 0.5 - Math.random()).slice(0, 3);
+    const short = t.length > 38 ? t.slice(0, 36) + "…" : t;
+    const thumbnails: ThumbStyle[] = shuffledStyles.map((style) => ({
+      style,
+      headline: style === "Bold" || style === "MrBeast" ? short.toUpperCase() : short,
+      bg: thumbPresets[style].bg,
+      accent: thumbPresets[style].accent,
+    }));
     return {
       project_id: projectId,
       user_id: userId,
@@ -707,6 +728,8 @@ function generateMockClips(projectId: string, userId: string) {
         watch_time_sec: Math.floor((end - start) * (retention / 100)),
         thumbnail: "Included",
         narrative: narratives[i % narratives.length],
+        hook_alternatives,
+        thumbnails,
       },
       start_sec: start,
       end_sec: end,
