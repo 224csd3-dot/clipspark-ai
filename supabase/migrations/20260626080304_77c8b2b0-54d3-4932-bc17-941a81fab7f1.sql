@@ -1,0 +1,1 @@
+ALTER TABLE public.clips ADD COLUMN IF NOT EXISTS strategy jsonb DEFAULT '{}'::jsonb;
