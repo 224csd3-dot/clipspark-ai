@@ -210,6 +210,13 @@ function ProcessingTimeline({ currentStep, progress }: { currentStep: string | n
   );
 }
 
+type ThumbStyle = {
+  style: "Bold" | "Minimal" | "MrBeast" | "Podcast" | "Business" | "Dark Theme";
+  headline: string;
+  bg: string;
+  accent: string;
+};
+
 type ClipStrategy = {
   retention_pct: number;
   hook_strength: "Weak" | "Solid" | "Strong" | "Elite";
@@ -220,6 +227,8 @@ type ClipStrategy = {
   watch_time_sec: number;
   thumbnail: string;
   narrative: string;
+  hook_alternatives: string[];
+  thumbnails: ThumbStyle[];
 };
 
 type Clip = {
