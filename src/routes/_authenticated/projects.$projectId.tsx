@@ -561,6 +561,18 @@ function generateMockClips(projectId: string, userId: string) {
     "Curiosity gap",
   ];
   const tagBank = ["founders", "AI", "startup", "creators", "growth", "podcast", "viral", "marketing", "hiring"];
+  const platforms = ["TikTok", "YouTube Shorts", "Instagram Reels", "LinkedIn", "X"];
+  const times = ["8 PM", "7 PM", "9 PM", "12 PM", "6 AM"];
+  const audiences = ["Entrepreneurs", "Creators", "Marketers", "Investors", "Students", "Engineers"];
+  const hookStrengths = ["Solid", "Strong", "Elite"] as const;
+  const arcs = ["Building", "Completed"] as const;
+  const narratives = [
+    "Opens with a curiosity gap in the first 3 seconds and holds emotional intensity through the payoff.",
+    "Pattern-interrupt opener followed by a tight 3-beat story arc, ending on a memorable punchline.",
+    "Specific number + bold claim in the first frame; pacing tightens every 4 seconds.",
+    "Confessional tone hooks identity-driven viewers, then resolves with an actionable takeaway.",
+    "Visual + verbal mismatch creates a stop-scroll moment; payoff lands at the 70% mark.",
+  ];
 
   return titles.map((t, i) => {
     const start = 60 + i * 70;
@@ -568,6 +580,7 @@ function generateMockClips(projectId: string, userId: string) {
     const score = 72 + Math.floor(Math.random() * 27);
     const reasons = [...reasonBank].sort(() => 0.5 - Math.random()).slice(0, 3);
     const hashtags = [...tagBank].sort(() => 0.5 - Math.random()).slice(0, 4);
+    const retention = 70 + Math.floor(Math.random() * 28);
     return {
       project_id: projectId,
       user_id: userId,
@@ -578,6 +591,17 @@ function generateMockClips(projectId: string, userId: string) {
       emotion: emotions[i % emotions.length],
       viral_score: score,
       score_reasons: reasons,
+      strategy: {
+        retention_pct: retention,
+        hook_strength: hookStrengths[Math.min(2, Math.floor(score / 33))],
+        story_arc: arcs[score > 85 ? 1 : 0],
+        platform: platforms[i % platforms.length],
+        upload_time: times[i % times.length],
+        audience: audiences[i % audiences.length],
+        watch_time_sec: Math.floor((end - start) * (retention / 100)),
+        thumbnail: "Included",
+        narrative: narratives[i % narratives.length],
+      },
       start_sec: start,
       end_sec: end,
       aspect_ratio: "9:16",
