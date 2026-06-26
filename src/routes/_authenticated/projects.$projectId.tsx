@@ -294,6 +294,7 @@ function ClipsGrid({ clips }: { clips: Clip[] }) {
 
 function getStrategy(clip: Clip): ClipStrategy {
   const s = (clip.strategy ?? {}) as Partial<ClipStrategy>;
+  const base = clip.hook ?? clip.title;
   return {
     retention_pct: s.retention_pct ?? 88,
     hook_strength: s.hook_strength ?? "Strong",
@@ -304,7 +305,22 @@ function getStrategy(clip: Clip): ClipStrategy {
     watch_time_sec: s.watch_time_sec ?? 28,
     thumbnail: s.thumbnail ?? "Included",
     narrative: s.narrative ?? "Opens with a sharp curiosity gap in the first 3 seconds and holds emotional intensity through the payoff.",
+    hook_alternatives: s.hook_alternatives ?? [
+      "Nobody tells you this…",
+      "You're wasting hours every week doing this",
+      "This one trick changed everything",
+    ],
+    thumbnails: s.thumbnails ?? defaultThumbs(base),
   };
+}
+
+function defaultThumbs(headline: string): ThumbStyle[] {
+  const short = headline.length > 38 ? headline.slice(0, 36) + "…" : headline;
+  return [
+    { style: "Bold", headline: short.toUpperCase(), bg: "from-[#7C3AED] to-[#2563EB]", accent: "#FDE047" },
+    { style: "MrBeast", headline: short, bg: "from-[#DC2626] to-[#7C2D12]", accent: "#FACC15" },
+    { style: "Minimal", headline: short, bg: "from-[#0A0A0B] to-[#1A1A1F]", accent: "#FFFFFF" },
+  ];
 }
 
 function StrategistHero({ clip, onOpen }: { clip: Clip; onOpen: () => void }) {
