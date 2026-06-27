@@ -177,6 +177,7 @@ export type Database = {
           duration_sec: number | null
           id: string
           language: string | null
+          last_error: string | null
           progress: number
           source_type: string
           source_url: string | null
@@ -184,8 +185,10 @@ export type Database = {
           template: string | null
           thumbnail_url: string | null
           title: string
+          transcript: Json | null
           updated_at: string
           user_id: string
+          youtube_id: string | null
         }
         Insert: {
           channel?: string | null
@@ -194,6 +197,7 @@ export type Database = {
           duration_sec?: number | null
           id?: string
           language?: string | null
+          last_error?: string | null
           progress?: number
           source_type?: string
           source_url?: string | null
@@ -201,8 +205,10 @@ export type Database = {
           template?: string | null
           thumbnail_url?: string | null
           title: string
+          transcript?: Json | null
           updated_at?: string
           user_id: string
+          youtube_id?: string | null
         }
         Update: {
           channel?: string | null
@@ -211,6 +217,7 @@ export type Database = {
           duration_sec?: number | null
           id?: string
           language?: string | null
+          last_error?: string | null
           progress?: number
           source_type?: string
           source_url?: string | null
@@ -218,8 +225,10 @@ export type Database = {
           template?: string | null
           thumbnail_url?: string | null
           title?: string
+          transcript?: Json | null
           updated_at?: string
           user_id?: string
+          youtube_id?: string | null
         }
         Relationships: []
       }
