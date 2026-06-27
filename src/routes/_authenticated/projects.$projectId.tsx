@@ -120,8 +120,15 @@ function ProjectPage() {
       ) : project.status === "completed" ? (
         <ClipsGrid clips={clips ?? []} />
       ) : (
-        <div className="mt-10 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
-          Processing failed. Try regenerating.
+        <div className="mt-10 rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
+          <p className="text-sm font-semibold text-red-200">Generation failed</p>
+          <p className="mt-1 text-sm text-red-200/80">{project.last_error ?? "Unknown error"}</p>
+          <button
+            onClick={retry}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-white/90"
+          >
+            <RotateCw className="size-4" /> Try again
+          </button>
         </div>
       )}
     </div>
