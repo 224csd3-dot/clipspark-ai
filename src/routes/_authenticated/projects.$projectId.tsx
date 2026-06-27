@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Check, Loader2, Download, Heart, Edit3, Trash2, Copy, Sparkles, TrendingUp, Brain, Clock, Users, Target, Image as ImageIcon, Zap, Activity, X, Wand2, Play } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Download, Heart, Edit3, Trash2, Copy, Sparkles, TrendingUp, Brain, Clock, Users, Target, Image as ImageIcon, Zap, Activity, X, Wand2, Play, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { analyzeProject } from "@/lib/analyze.functions";
 
 export const Route = createFileRoute("/_authenticated/projects/$projectId")({
   head: () => ({ meta: [{ title: "Project · ClipForge AI" }] }),
@@ -30,7 +32,8 @@ const STEPS = [
 function ProjectPage() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
-  const simulatedRef = useRef(false);
+  const startedRef = useRef(false);
+  const analyze = useServerFn(analyzeProject);
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -54,39 +57,30 @@ function ProjectPage() {
     enabled: project?.status === "completed",
   });
 
-  // Simulate processing pipeline (client-side mock until real video pipeline is wired)
+  // Kick off the real AI analysis once when the project lands in "processing"
   useEffect(() => {
-    if (!project || project.status !== "processing" || simulatedRef.current) return;
-    simulatedRef.current = true;
-
-    let cancelled = false;
-    (async () => {
-      for (let i = 0; i < STEPS.length; i++) {
-        if (cancelled) return;
-        await new Promise((r) => setTimeout(r, 900));
-        await supabase
-          .from("projects")
-          .update({
-            current_step: STEPS[i],
-            progress: Math.round(((i + 1) / STEPS.length) * 100),
-          })
-          .eq("id", projectId);
+    if (!project || project.status !== "processing" || startedRef.current) return;
+    startedRef.current = true;
+    analyze({ data: { projectId } })
+      .then((res) => {
         queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      }
-      if (cancelled) return;
-      // Generate mock clips
-      const mockClips = generateMockClips(projectId, project.user_id);
-      await supabase.from("clips").insert(mockClips);
-      await supabase.from("projects").update({ status: "completed", progress: 100 }).eq("id", projectId);
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["clips", projectId] });
-      toast.success("Clips ready!");
-    })();
+        queryClient.invalidateQueries({ queryKey: ["clips", projectId] });
+        if (res?.count) toast.success(`${res.count} clips ready!`);
+      })
+      .catch((err: any) => {
+        queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+        toast.error(err?.message ?? "Generation failed");
+      });
+  }, [project, projectId, queryClient, analyze]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [project, projectId, queryClient]);
+  async function retry() {
+    startedRef.current = false;
+    await supabase
+      .from("projects")
+      .update({ status: "processing", progress: 0, current_step: STEPS[0], last_error: null })
+      .eq("id", projectId);
+    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+  }
 
   if (!project) {
     return (
@@ -126,8 +120,15 @@ function ProjectPage() {
       ) : project.status === "completed" ? (
         <ClipsGrid clips={clips ?? []} />
       ) : (
-        <div className="mt-10 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
-          Processing failed. Try regenerating.
+        <div className="mt-10 rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
+          <p className="text-sm font-semibold text-red-200">Generation failed</p>
+          <p className="mt-1 text-sm text-red-200/80">{project.last_error ?? "Unknown error"}</p>
+          <button
+            onClick={retry}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-black hover:bg-white/90"
+          >
+            <RotateCw className="size-4" /> Try again
+          </button>
         </div>
       )}
     </div>
@@ -639,108 +640,4 @@ function ThumbnailPreview({ thumb }: { thumb: ThumbStyle }) {
       </p>
     </div>
   );
-}
-
-function generateMockClips(projectId: string, userId: string) {
-  const titles = [
-    "The one mistake every founder makes",
-    "Why most creators quit in year two",
-    "This single hire changed everything",
-    "The 30-second pitch that raised $20M",
-    "How we 10x'd retention overnight",
-    "The skill nobody is teaching",
-    "What VCs won't tell you",
-    "I wish I knew this at 22",
-    "The exact framework I use weekly",
-    "Stop doing this on day one",
-    "How AI killed our roadmap",
-    "Three lessons from 100 podcasts",
-  ];
-  const emotions = ["Inspiring", "Tense", "Surprising", "Funny", "Educational", "Bold"];
-  const reasonBank = [
-    "Strong hook",
-    "High emotion",
-    "Fast pacing",
-    "Good retention",
-    "Powerful ending",
-    "Clear takeaway",
-    "Curiosity gap",
-  ];
-  const tagBank = ["founders", "AI", "startup", "creators", "growth", "podcast", "viral", "marketing", "hiring"];
-  const platforms = ["TikTok", "YouTube Shorts", "Instagram Reels", "LinkedIn", "X"];
-  const times = ["8 PM", "7 PM", "9 PM", "12 PM", "6 AM"];
-  const audiences = ["Entrepreneurs", "Creators", "Marketers", "Investors", "Students", "Engineers"];
-  const hookStrengths = ["Solid", "Strong", "Elite"] as const;
-  const arcs = ["Building", "Completed"] as const;
-  const narratives = [
-    "Opens with a curiosity gap in the first 3 seconds and holds emotional intensity through the payoff.",
-    "Pattern-interrupt opener followed by a tight 3-beat story arc, ending on a memorable punchline.",
-    "Specific number + bold claim in the first frame; pacing tightens every 4 seconds.",
-    "Confessional tone hooks identity-driven viewers, then resolves with an actionable takeaway.",
-    "Visual + verbal mismatch creates a stop-scroll moment; payoff lands at the 70% mark.",
-  ];
-  const hookTemplates = [
-    (t: string) => `Nobody tells you this about ${t.toLowerCase().replace(/^the |^a |^this /, "")}`,
-    (_t: string) => `You're wasting hours every week — here's why`,
-    (_t: string) => `This one trick changed everything`,
-    (t: string) => `Stop doing ${t.toLowerCase().split(" ").slice(-2).join(" ")} — do this instead`,
-    (_t: string) => `What if I told you the opposite is true?`,
-    (t: string) => `${t.split(" ")[0]} did WHAT?`,
-    (_t: string) => `I tried this for 30 days. The result shocked me.`,
-  ];
-  const thumbStylePool: ThumbStyle["style"][] = ["Bold", "Minimal", "MrBeast", "Podcast", "Business", "Dark Theme"];
-  const thumbPresets: Record<ThumbStyle["style"], { bg: string; accent: string }> = {
-    Bold: { bg: "from-[#7C3AED] to-[#2563EB]", accent: "#FDE047" },
-    MrBeast: { bg: "from-[#DC2626] to-[#7C2D12]", accent: "#FACC15" },
-    Minimal: { bg: "from-[#FAFAFA] to-[#D4D4D8]", accent: "#0A0A0B" },
-    Podcast: { bg: "from-[#1E1B4B] to-[#0F172A]", accent: "#A78BFA" },
-    Business: { bg: "from-[#0F172A] to-[#1E293B]", accent: "#10B981" },
-    "Dark Theme": { bg: "from-[#09090B] to-[#1F1F23]", accent: "#FFFFFF" },
-  };
-
-  return titles.map((t, i) => {
-    const start = 60 + i * 70;
-    const end = start + 30 + Math.floor(Math.random() * 28);
-    const score = 72 + Math.floor(Math.random() * 27);
-    const reasons = [...reasonBank].sort(() => 0.5 - Math.random()).slice(0, 3);
-    const hashtags = [...tagBank].sort(() => 0.5 - Math.random()).slice(0, 4);
-    const retention = 70 + Math.floor(Math.random() * 28);
-    const shuffledHooks = [...hookTemplates].sort(() => 0.5 - Math.random()).slice(0, 3);
-    const hook_alternatives = shuffledHooks.map((fn) => fn(t));
-    const shuffledStyles = [...thumbStylePool].sort(() => 0.5 - Math.random()).slice(0, 3);
-    const short = t.length > 38 ? t.slice(0, 36) + "…" : t;
-    const thumbnails: ThumbStyle[] = shuffledStyles.map((style) => ({
-      style,
-      headline: style === "Bold" || style === "MrBeast" ? short.toUpperCase() : short,
-      bg: thumbPresets[style].bg,
-      accent: thumbPresets[style].accent,
-    }));
-    return {
-      project_id: projectId,
-      user_id: userId,
-      title: t,
-      hook: t,
-      description: `${t}. A clip generated from your video, optimized for short-form platforms.`,
-      hashtags,
-      emotion: emotions[i % emotions.length],
-      viral_score: score,
-      score_reasons: reasons,
-      strategy: {
-        retention_pct: retention,
-        hook_strength: hookStrengths[Math.min(2, Math.floor(score / 33))],
-        story_arc: arcs[score > 85 ? 1 : 0],
-        platform: platforms[i % platforms.length],
-        upload_time: times[i % times.length],
-        audience: audiences[i % audiences.length],
-        watch_time_sec: Math.floor((end - start) * (retention / 100)),
-        thumbnail: "Included",
-        narrative: narratives[i % narratives.length],
-        hook_alternatives,
-        thumbnails,
-      },
-      start_sec: start,
-      end_sec: end,
-      aspect_ratio: "9:16",
-    };
-  });
 }
