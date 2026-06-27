@@ -319,8 +319,6 @@ export const analyzeProject = createServerFn({ method: "POST" })
         .update({ status: "completed", progress: 100, last_error: null })
         .eq("id", projectId);
 
-      // Decrement credits (1 per clip generated)
-      await supabase.rpc("decrement_credits" as any).select(); // optional; ignore if missing
       return { ok: true, count: rows.length };
     } catch (err: any) {
       const msg = err?.message ?? String(err);
