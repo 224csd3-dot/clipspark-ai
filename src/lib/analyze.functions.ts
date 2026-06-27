@@ -39,51 +39,137 @@ function decodeXml(s: string): string {
     .trim();
 }
 
-async function fetchTimedText(videoId: string): Promise<Segment[]> {
-  // Try json3 (cleanest), then srv3 XML, with manual + ASR variants.
-  const variants = [
-    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&kind=asr&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?lang=en-US&v=${videoId}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}`,
-    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&kind=asr`,
+type CaptionTrack = { baseUrl: string; languageCode: string; kind?: string };
+
+async function listCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
+  // Use YouTube's innertube /player API (the same one the web/Android app uses).
+  // The ANDROID client returns caption tracks without consent walls or signed URLs.
+  const clients = [
+    {
+      context: {
+        client: {
+          clientName: "ANDROID",
+          clientVersion: "19.09.37",
+          androidSdkVersion: 30,
+          hl: "en",
+          gl: "US",
+        },
+      },
+    },
+    {
+      context: {
+        client: {
+          clientName: "WEB",
+          clientVersion: "2.20240726.00.00",
+          hl: "en",
+          gl: "US",
+        },
+      },
+    },
   ];
 
-  for (const url of variants) {
+  for (const ctx of clients) {
     try {
-      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+      const res = await fetch(
+        "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent":
+              "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip",
+          },
+          body: JSON.stringify({ ...ctx, videoId }),
+        },
+      );
       if (!res.ok) continue;
-      const body = await res.text();
-      if (!body) continue;
-
-      if (url.includes("fmt=json3")) {
-        const json = JSON.parse(body);
-        const events = json.events ?? [];
-        const segs: Segment[] = [];
-        for (const ev of events) {
-          if (!ev.segs) continue;
-          const text = ev.segs.map((s: any) => s.utf8 ?? "").join("").replace(/\n/g, " ").trim();
-          if (!text) continue;
-          segs.push({
-            start: (ev.tStartMs ?? 0) / 1000,
-            dur: (ev.dDurationMs ?? 2000) / 1000,
-            text,
-          });
-        }
-        if (segs.length) return segs;
-      } else {
-        // XML format
-        const segs: Segment[] = [];
-        const re = /<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(body))) {
-          const text = decodeXml(m[3]);
-          if (text) segs.push({ start: parseFloat(m[1]), dur: parseFloat(m[2]), text });
-        }
-        if (segs.length) return segs;
+      const json: any = await res.json();
+      const tracks: any[] =
+        json?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+      if (tracks.length) {
+        return tracks.map((t) => ({
+          baseUrl: t.baseUrl,
+          languageCode: t.languageCode,
+          kind: t.kind,
+        }));
       }
     } catch {
-      // try next
+      // try next client
+    }
+  }
+  return [];
+}
+
+async function fetchCaptionTrack(track: CaptionTrack, translate: boolean): Promise<Segment[]> {
+  const url = new URL(track.baseUrl);
+  url.searchParams.set("fmt", "json3");
+  if (translate && track.languageCode !== "en") url.searchParams.set("tlang", "en");
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+    if (!res.ok) return [];
+    const body = await res.text();
+    if (!body) return [];
+
+    // json3
+    try {
+      const json = JSON.parse(body);
+      const events = json.events ?? [];
+      const segs: Segment[] = [];
+      for (const ev of events) {
+        if (!ev.segs) continue;
+        const text = ev.segs
+          .map((s: any) => s.utf8 ?? "")
+          .join("")
+          .replace(/\n/g, " ")
+          .trim();
+        if (!text) continue;
+        segs.push({
+          start: (ev.tStartMs ?? 0) / 1000,
+          dur: (ev.dDurationMs ?? 2000) / 1000,
+          text,
+        });
+      }
+      if (segs.length) return segs;
+    } catch {
+      // XML fallback
+      const segs: Segment[] = [];
+      const re = /<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(body))) {
+        const text = decodeXml(m[3]);
+        if (text) segs.push({ start: parseFloat(m[1]), dur: parseFloat(m[2]), text });
+      }
+      if (segs.length) return segs;
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+async function fetchTimedText(videoId: string): Promise<Segment[]> {
+  const tracks = await listCaptionTracks(videoId);
+  if (!tracks.length) return [];
+
+  // Preference order: manual English > ASR English > manual any > ASR any (translated to en)
+  const score = (t: CaptionTrack) => {
+    const isEn = t.languageCode?.toLowerCase().startsWith("en") ? 0 : 2;
+    const isAsr = t.kind === "asr" ? 1 : 0;
+    return isEn + isAsr;
+  };
+  const sorted = [...tracks].sort((a, b) => score(a) - score(b));
+
+  for (const t of sorted) {
+    const translate = !t.languageCode?.toLowerCase().startsWith("en");
+    const segs = await fetchCaptionTrack(t, translate);
+    if (segs.length) return segs;
+    // If translated fetch failed, try original language
+    if (translate) {
+      const raw = await fetchCaptionTrack(t, false);
+      if (raw.length) return raw;
     }
   }
   return [];
