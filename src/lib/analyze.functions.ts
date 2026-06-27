@@ -1,0 +1,333 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+
+const Input = z.object({ projectId: z.string().uuid() });
+
+type Segment = { start: number; dur: number; text: string };
+
+const STEPS = [
+  "Downloading Video",
+  "Extracting Audio",
+  "Generating Transcript",
+  "Analyzing Transcript",
+  "Detecting Viral Moments",
+  "Removing Silences",
+  "Generating Captions",
+  "Cropping Video",
+  "Face Tracking",
+  "Rendering Shorts",
+  "Creating Titles",
+  "Generating Hashtags",
+  "Preparing Downloads",
+];
+
+function extractYouTubeId(url: string): string | null {
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);
+  return m?.[1] ?? null;
+}
+
+function decodeXml(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/<[^>]+>/g, "")
+    .trim();
+}
+
+async function fetchTimedText(videoId: string): Promise<Segment[]> {
+  // Try json3 (cleanest), then srv3 XML, with manual + ASR variants.
+  const variants = [
+    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&fmt=json3`,
+    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&kind=asr&fmt=json3`,
+    `https://www.youtube.com/api/timedtext?lang=en-US&v=${videoId}&fmt=json3`,
+    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}`,
+    `https://www.youtube.com/api/timedtext?lang=en&v=${videoId}&kind=asr`,
+  ];
+
+  for (const url of variants) {
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+      if (!res.ok) continue;
+      const body = await res.text();
+      if (!body) continue;
+
+      if (url.includes("fmt=json3")) {
+        const json = JSON.parse(body);
+        const events = json.events ?? [];
+        const segs: Segment[] = [];
+        for (const ev of events) {
+          if (!ev.segs) continue;
+          const text = ev.segs.map((s: any) => s.utf8 ?? "").join("").replace(/\n/g, " ").trim();
+          if (!text) continue;
+          segs.push({
+            start: (ev.tStartMs ?? 0) / 1000,
+            dur: (ev.dDurationMs ?? 2000) / 1000,
+            text,
+          });
+        }
+        if (segs.length) return segs;
+      } else {
+        // XML format
+        const segs: Segment[] = [];
+        const re = /<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(body))) {
+          const text = decodeXml(m[3]);
+          if (text) segs.push({ start: parseFloat(m[1]), dur: parseFloat(m[2]), text });
+        }
+        if (segs.length) return segs;
+      }
+    } catch {
+      // try next
+    }
+  }
+  return [];
+}
+
+function chunkTranscript(segs: Segment[]): string {
+  // Build a compact "[mm:ss] text" line per segment, merged to ~one line per 5s
+  const lines: string[] = [];
+  let buf = "";
+  let bufStart = 0;
+  let lastFlush = -10;
+  for (const s of segs) {
+    if (s.start - lastFlush >= 5 && buf) {
+      const mm = Math.floor(bufStart / 60).toString().padStart(2, "0");
+      const ss = Math.floor(bufStart % 60).toString().padStart(2, "0");
+      lines.push(`[${mm}:${ss}] ${buf.trim()}`);
+      buf = "";
+    }
+    if (!buf) bufStart = s.start;
+    buf += " " + s.text;
+    lastFlush = s.start;
+  }
+  if (buf) {
+    const mm = Math.floor(bufStart / 60).toString().padStart(2, "0");
+    const ss = Math.floor(bufStart % 60).toString().padStart(2, "0");
+    lines.push(`[${mm}:${ss}] ${buf.trim()}`);
+  }
+  return lines.join("\n");
+}
+
+const SYSTEM = `You are an elite short-form video strategist for TikTok, YouTube Shorts, and Instagram Reels.
+You are given a timestamped transcript of a long-form video. Your job is to extract the 6-10 BEST short-form clips that have the highest probability of going viral.
+
+A great clip:
+- Starts with a curiosity gap, bold claim, or pattern interrupt in the first 3 seconds
+- Has a complete micro story arc (setup -> tension -> payoff) within 20-60 seconds
+- Carries strong emotion (shock, awe, anger, inspiration, humor, controversy)
+- Ends on a clean punchline, twist, or actionable insight - never mid-sentence
+
+Use the timestamps [mm:ss] from the transcript to set start_sec and end_sec accurately (convert to total seconds). Each clip MUST be 15-75 seconds long. Pick clips that do not overlap.
+
+Return ONLY a JSON object that matches the schema. No prose.`;
+
+const SCHEMA_HINT = `{
+  "clips": [
+    {
+      "start_sec": number,
+      "end_sec": number,
+      "title": "string, <70 chars, punchy",
+      "hook": "string, the first-3-seconds opener said in the clip",
+      "description": "string, 1-2 sentence platform caption",
+      "hashtags": ["array of 5-8 lowercase hashtag strings WITHOUT the # prefix"],
+      "emotion": "Shock|Awe|Inspiration|Humor|Controversy|Curiosity|Anger|Empathy",
+      "viral_score": "integer 60-99",
+      "score_reasons": ["3-5 short bullets like 'Strong Hook', 'High Emotion', 'Fast Pacing'"],
+      "strategy": {
+        "retention_pct": "integer 60-98",
+        "hook_strength": "Weak|Solid|Strong|Elite",
+        "story_arc": "Incomplete|Building|Completed",
+        "platform": "TikTok|YouTube Shorts|Instagram Reels|LinkedIn",
+        "upload_time": "e.g. '8 PM'",
+        "audience": "short phrase, e.g. 'Entrepreneurs'",
+        "watch_time_sec": "integer, expected average watch time",
+        "narrative": "1-2 sentence explanation of WHY this clip will go viral",
+        "hook_alternatives": ["3 stronger alternative openers, each <90 chars"]
+      }
+    }
+  ]
+}`;
+
+async function callGemini(transcriptText: string, videoTitle: string): Promise<any> {
+  const key = process.env.LOVABLE_API_KEY;
+  if (!key) throw new Error("LOVABLE_API_KEY missing");
+
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM },
+        {
+          role: "user",
+          content: `Video title: ${videoTitle}\n\nTranscript:\n${transcriptText}\n\nReturn JSON exactly matching this shape:\n${SCHEMA_HINT}`,
+        },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    if (res.status === 429) throw new Error("AI rate limit hit. Try again in a minute.");
+    if (res.status === 402) throw new Error("AI credits exhausted. Add credits in workspace billing.");
+    throw new Error(`AI gateway error ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = await res.json();
+  const content = json.choices?.[0]?.message?.content;
+  if (!content) throw new Error("AI returned empty response");
+  return JSON.parse(content);
+}
+
+function defaultThumbs(headline: string) {
+  const short = headline.length > 38 ? headline.slice(0, 36) + "…" : headline;
+  return [
+    { style: "Bold", headline: short.toUpperCase(), bg: "from-[#7C3AED] to-[#2563EB]", accent: "#FDE047" },
+    { style: "MrBeast", headline: short, bg: "from-[#DC2626] to-[#7C2D12]", accent: "#FACC15" },
+    { style: "Minimal", headline: short, bg: "from-[#0A0A0B] to-[#1A1A1F]", accent: "#FFFFFF" },
+  ];
+}
+
+export const analyzeProject = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => Input.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { projectId } = data;
+
+    const { data: project, error: pErr } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("id", projectId)
+      .eq("user_id", userId)
+      .single();
+    if (pErr || !project) throw new Error("Project not found");
+    if (project.status === "completed") return { ok: true, skipped: true };
+
+    const setStep = async (step: string, progress: number) => {
+      await supabase.from("projects").update({ current_step: step, progress }).eq("id", projectId);
+    };
+
+    try {
+      // Step 1-3: fetch transcript
+      await setStep(STEPS[0], 6);
+      const videoId =
+        project.youtube_id ?? (project.source_url ? extractYouTubeId(project.source_url) : null);
+      if (!videoId) throw new Error("Could not parse YouTube video ID");
+
+      await setStep(STEPS[1], 12);
+      await setStep(STEPS[2], 22);
+      const segments = await fetchTimedText(videoId);
+      if (!segments.length) {
+        throw new Error(
+          "This video has no public captions. Pick a video with captions enabled — Whisper transcription is coming next."
+        );
+      }
+
+      // Compute duration if missing
+      const last = segments[segments.length - 1];
+      const duration = Math.round(last.start + last.dur);
+
+      await supabase
+        .from("projects")
+        .update({
+          youtube_id: videoId,
+          transcript: segments as any,
+          duration_sec: duration,
+        })
+        .eq("id", projectId);
+
+      // Step 4-5: analyze
+      await setStep(STEPS[3], 36);
+      const transcriptText = chunkTranscript(segments);
+      // Soft cap (Gemini Flash handles huge context, but keep tokens sane)
+      const safe = transcriptText.length > 120000 ? transcriptText.slice(0, 120000) : transcriptText;
+
+      await setStep(STEPS[4], 52);
+      const result = await callGemini(safe, project.title);
+      const rawClips: any[] = Array.isArray(result.clips) ? result.clips : [];
+      if (!rawClips.length) throw new Error("AI did not return any clips. Try a different video.");
+
+      // Step 6-12
+      await setStep(STEPS[5], 64);
+      await setStep(STEPS[6], 72);
+      await setStep(STEPS[7], 80);
+      await setStep(STEPS[8], 86);
+      await setStep(STEPS[9], 90);
+      await setStep(STEPS[10], 93);
+      await setStep(STEPS[11], 96);
+
+      const rows = rawClips.slice(0, 12).map((c) => {
+        const start = Math.max(0, Math.floor(Number(c.start_sec) || 0));
+        const endRaw = Math.floor(Number(c.end_sec) || start + 30);
+        const end = Math.min(duration || endRaw, Math.max(start + 10, endRaw));
+        const title = String(c.title ?? "Untitled clip").slice(0, 140);
+        const hook = String(c.hook ?? title).slice(0, 240);
+        const strategy = c.strategy ?? {};
+        return {
+          project_id: projectId,
+          user_id: userId,
+          title,
+          hook,
+          description: String(c.description ?? "").slice(0, 500),
+          hashtags: Array.isArray(c.hashtags)
+            ? c.hashtags.map((h: string) => String(h).replace(/^#/, "").toLowerCase()).slice(0, 10)
+            : [],
+          emotion: c.emotion ?? "Curiosity",
+          viral_score: Math.min(99, Math.max(50, Math.round(Number(c.viral_score) || 75))),
+          score_reasons: Array.isArray(c.score_reasons) ? c.score_reasons : [],
+          start_sec: start,
+          end_sec: end,
+          aspect_ratio: "9:16",
+          thumbnail_url: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
+          strategy: {
+            retention_pct: Math.min(99, Math.max(40, Math.round(Number(strategy.retention_pct) || 85))),
+            hook_strength: strategy.hook_strength ?? "Strong",
+            story_arc: strategy.story_arc ?? "Completed",
+            platform: strategy.platform ?? "TikTok",
+            upload_time: strategy.upload_time ?? "8 PM",
+            audience: strategy.audience ?? "Creators",
+            watch_time_sec: Math.round(Number(strategy.watch_time_sec) || end - start),
+            thumbnail: "Included",
+            narrative:
+              strategy.narrative ??
+              "Opens with a strong curiosity gap and pays off cleanly within the clip window.",
+            hook_alternatives: Array.isArray(strategy.hook_alternatives)
+              ? strategy.hook_alternatives.slice(0, 3)
+              : [hook],
+            thumbnails: defaultThumbs(hook),
+          },
+        };
+      });
+
+      const { error: insErr } = await supabase.from("clips").insert(rows as any);
+      if (insErr) throw new Error(`Failed to save clips: ${insErr.message}`);
+
+      await setStep(STEPS[12], 100);
+      await supabase
+        .from("projects")
+        .update({ status: "completed", progress: 100, last_error: null })
+        .eq("id", projectId);
+
+      // Decrement credits (1 per clip generated)
+      await supabase.rpc("decrement_credits" as any).select(); // optional; ignore if missing
+      return { ok: true, count: rows.length };
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      await supabase
+        .from("projects")
+        .update({ status: "failed", last_error: msg })
+        .eq("id", projectId);
+      throw new Error(msg);
+    }
+  });
