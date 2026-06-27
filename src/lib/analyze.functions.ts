@@ -316,7 +316,7 @@ export const analyzeProject = createServerFn({ method: "POST" })
       const segments = await fetchTimedText(videoId);
       if (!segments.length) {
         throw new Error(
-          "This video has no public captions. Pick a video with captions enabled — Whisper transcription is coming next."
+          "Could not fetch captions for this video. The channel may have disabled captions, or YouTube is rate-limiting. Try another video.",
         );
       }
 
