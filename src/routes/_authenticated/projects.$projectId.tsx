@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Check, Loader2, Download, Heart, Edit3, Trash2, Copy, Sparkles, TrendingUp, Brain, Clock, Users, Target, Image as ImageIcon, Zap, Activity, X, Wand2, Play } from "lucide-react";
+import { ArrowLeft, Check, Loader2, Download, Heart, Edit3, Trash2, Copy, Sparkles, TrendingUp, Brain, Clock, Users, Target, Image as ImageIcon, Zap, Activity, X, Wand2, Play, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { analyzeProject } from "@/lib/analyze.functions";
 
 export const Route = createFileRoute("/_authenticated/projects/$projectId")({
   head: () => ({ meta: [{ title: "Project · ClipForge AI" }] }),
@@ -30,7 +32,8 @@ const STEPS = [
 function ProjectPage() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
-  const simulatedRef = useRef(false);
+  const startedRef = useRef(false);
+  const analyze = useServerFn(analyzeProject);
 
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -54,39 +57,30 @@ function ProjectPage() {
     enabled: project?.status === "completed",
   });
 
-  // Simulate processing pipeline (client-side mock until real video pipeline is wired)
+  // Kick off the real AI analysis once when the project lands in "processing"
   useEffect(() => {
-    if (!project || project.status !== "processing" || simulatedRef.current) return;
-    simulatedRef.current = true;
-
-    let cancelled = false;
-    (async () => {
-      for (let i = 0; i < STEPS.length; i++) {
-        if (cancelled) return;
-        await new Promise((r) => setTimeout(r, 900));
-        await supabase
-          .from("projects")
-          .update({
-            current_step: STEPS[i],
-            progress: Math.round(((i + 1) / STEPS.length) * 100),
-          })
-          .eq("id", projectId);
+    if (!project || project.status !== "processing" || startedRef.current) return;
+    startedRef.current = true;
+    analyze({ data: { projectId } })
+      .then((res) => {
         queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      }
-      if (cancelled) return;
-      // Generate mock clips
-      const mockClips = generateMockClips(projectId, project.user_id);
-      await supabase.from("clips").insert(mockClips);
-      await supabase.from("projects").update({ status: "completed", progress: 100 }).eq("id", projectId);
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["clips", projectId] });
-      toast.success("Clips ready!");
-    })();
+        queryClient.invalidateQueries({ queryKey: ["clips", projectId] });
+        if (res?.count) toast.success(`${res.count} clips ready!`);
+      })
+      .catch((err: any) => {
+        queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+        toast.error(err?.message ?? "Generation failed");
+      });
+  }, [project, projectId, queryClient, analyze]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [project, projectId, queryClient]);
+  async function retry() {
+    startedRef.current = false;
+    await supabase
+      .from("projects")
+      .update({ status: "processing", progress: 0, current_step: STEPS[0], last_error: null })
+      .eq("id", projectId);
+    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+  }
 
   if (!project) {
     return (
