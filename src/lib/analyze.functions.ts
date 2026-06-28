@@ -41,6 +41,80 @@ function decodeXml(s: string): string {
 
 type CaptionTrack = { baseUrl: string; languageCode: string; kind?: string };
 
+function extractBalancedJson(source: string, marker: string): any | null {
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) return null;
+
+  const start = source.indexOf("{", markerIndex);
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < source.length; i++) {
+    const ch = source[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(source.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+async function listCaptionTracksFromWatchPage(videoId: string): Promise<CaptionTrack[]> {
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en&gl=US`, {
+      headers: {
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      },
+    });
+    if (!res.ok) return [];
+
+    const html = await res.text();
+    const playerResponse =
+      extractBalancedJson(html, "ytInitialPlayerResponse =") ??
+      extractBalancedJson(html, "ytInitialPlayerResponse=");
+    const tracks: any[] =
+      playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+
+    return tracks
+      .filter((t) => t?.baseUrl && t?.languageCode)
+      .map((t) => ({
+        baseUrl: t.baseUrl,
+        languageCode: t.languageCode,
+        kind: t.kind,
+      }));
+  } catch {
+    return [];
+  }
+}
+
 async function listCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
   // Use YouTube's innertube /player API (the same one the web/Android app uses).
   // The ANDROID client returns caption tracks without consent walls or signed URLs.
@@ -97,7 +171,11 @@ async function listCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
       // try next client
     }
   }
-  return [];
+
+  // Fallback: some videos hide tracks from innertube but expose them in the
+  // watch page's initial player response. This catches ASR captions like Hindi
+  // auto-captions on gaming/commentary videos.
+  return listCaptionTracksFromWatchPage(videoId);
 }
 
 async function fetchCaptionTrack(track: CaptionTrack, translate: boolean): Promise<Segment[]> {
