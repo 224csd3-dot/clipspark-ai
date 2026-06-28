@@ -29,6 +29,93 @@ const STEPS = [
   "Preparing Downloads",
 ] as const;
 
+type BrowserCaptionTrack = {
+  baseUrl: string;
+  languageCode: string;
+  kind?: string;
+};
+
+type BrowserSegment = {
+  start: number;
+  dur: number;
+  text: string;
+};
+
+function decodeXmlText(value: string) {
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value.replace(/<[^>]+>/g, "");
+  return textarea.value.trim();
+}
+
+async function fetchBrowserCaptionTrack(track: BrowserCaptionTrack, translate: boolean): Promise<BrowserSegment[]> {
+  const url = new URL(track.baseUrl);
+  url.searchParams.delete("fmt");
+  url.searchParams.set("fmt", "json3");
+  if (translate && !track.languageCode?.toLowerCase().startsWith("en")) {
+    url.searchParams.set("tlang", "en");
+  }
+
+  const res = await fetch(url.toString(), { credentials: "include" });
+  if (!res.ok) return [];
+
+  const body = await res.text();
+  if (!body || body.trim().startsWith("<html")) return [];
+
+  try {
+    const json = JSON.parse(body);
+    return (json.events ?? [])
+      .filter((event: any) => event.segs)
+      .map((event: any) => ({
+        start: (event.tStartMs ?? 0) / 1000,
+        dur: (event.dDurationMs ?? 2000) / 1000,
+        text: event.segs
+          .map((segment: any) => segment.utf8 ?? "")
+          .join("")
+          .replace(/\n/g, " ")
+          .trim(),
+      }))
+      .filter((segment: BrowserSegment) => segment.text);
+  } catch {
+    const segments: BrowserSegment[] = [];
+    const re = /<text\s+start="([\d.]+)"\s+dur="([\d.]+)"[^>]*>([\s\S]*?)<\/text>/g;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(body))) {
+      const text = decodeXmlText(match[3]);
+      if (text) segments.push({ start: parseFloat(match[1]), dur: parseFloat(match[2]), text });
+    }
+    return segments;
+  }
+}
+
+async function fetchBrowserTranscript(tracks: BrowserCaptionTrack[]): Promise<BrowserSegment[]> {
+  if (!tracks.length) throw new Error("No caption tracks found for this video.");
+
+  const sorted = [...tracks].sort((a, b) => {
+    const score = (track: BrowserCaptionTrack) => {
+      const language = track.languageCode?.toLowerCase() ?? "";
+      const isEnglish = language.startsWith("en") ? 0 : 2;
+      const isAuto = track.kind === "asr" ? 1 : 0;
+      return isEnglish + isAuto;
+    };
+    return score(a) - score(b);
+  });
+
+  for (const track of sorted) {
+    const shouldTranslate = !track.languageCode?.toLowerCase().startsWith("en");
+    const translated = await fetchBrowserCaptionTrack(track, shouldTranslate);
+    if (translated.length >= 20) return translated;
+
+    if (shouldTranslate) {
+      const raw = await fetchBrowserCaptionTrack(track, false);
+      if (raw.length >= 20) return raw;
+    }
+  }
+
+  throw new Error(
+    "YouTube blocked transcript access for this video. Try another video, or use the upload flow when MP4 processing is enabled.",
+  );
+}
+
 function ProjectPage() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
