@@ -3,6 +3,19 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const Input = z.object({ projectId: z.string().uuid() });
+const TranscriptInput = z.object({
+  projectId: z.string().uuid(),
+  segments: z
+    .array(
+      z.object({
+        start: z.number().min(0),
+        dur: z.number().min(0).max(60).default(2),
+        text: z.string().min(1).max(1000),
+      }),
+    )
+    .min(20)
+    .max(10000),
+});
 
 type Segment = { start: number; dur: number; text: string };
 
@@ -39,7 +52,85 @@ function decodeXml(s: string): string {
     .trim();
 }
 
-type CaptionTrack = { baseUrl: string; languageCode: string; kind?: string };
+type CaptionTrack = { baseUrl: string; languageCode: string; kind?: string; name?: string };
+
+function extractBalancedJson(source: string, marker: string): any | null {
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) return null;
+
+  const start = source.indexOf("{", markerIndex);
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < source.length; i++) {
+    const ch = source[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(source.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+async function listCaptionTracksFromWatchPage(videoId: string): Promise<CaptionTrack[]> {
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=en&gl=US`, {
+      headers: {
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      },
+    });
+    if (!res.ok) return [];
+
+    const html = await res.text();
+    const playerResponse =
+      extractBalancedJson(html, "ytInitialPlayerResponse =") ??
+      extractBalancedJson(html, "ytInitialPlayerResponse=");
+    const tracks: any[] =
+      playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+
+    return tracks
+      .filter((t) => t?.baseUrl && t?.languageCode)
+      .map((t) => ({
+        baseUrl: t.baseUrl,
+        languageCode: t.languageCode,
+        kind: t.kind,
+        name:
+          t.name?.simpleText ??
+          t.name?.runs?.map((r: any) => r.text ?? "").join("") ??
+          t.languageCode,
+      }));
+  } catch {
+    return [];
+  }
+}
 
 async function listCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
   // Use YouTube's innertube /player API (the same one the web/Android app uses).
@@ -91,13 +182,21 @@ async function listCaptionTracks(videoId: string): Promise<CaptionTrack[]> {
           baseUrl: t.baseUrl,
           languageCode: t.languageCode,
           kind: t.kind,
+          name:
+            t.name?.simpleText ??
+            t.name?.runs?.map((r: any) => r.text ?? "").join("") ??
+            t.languageCode,
         }));
       }
     } catch {
       // try next client
     }
   }
-  return [];
+
+  // Fallback: some videos hide tracks from innertube but expose them in the
+  // watch page's initial player response. This catches ASR captions like Hindi
+  // auto-captions on gaming/commentary videos.
+  return listCaptionTracksFromWatchPage(videoId);
 }
 
 async function fetchCaptionTrack(track: CaptionTrack, translate: boolean): Promise<Segment[]> {
@@ -284,6 +383,161 @@ function defaultThumbs(headline: string) {
   ];
 }
 
+function normalizeClipRows({
+  rawClips,
+  duration,
+  hookVideoId,
+  projectId,
+  userId,
+}: {
+  rawClips: any[];
+  duration: number;
+  hookVideoId: string;
+  projectId: string;
+  userId: string;
+}) {
+  return rawClips.slice(0, 12).map((c) => {
+    const start = Math.max(0, Math.floor(Number(c.start_sec) || 0));
+    const endRaw = Math.floor(Number(c.end_sec) || start + 30);
+    const end = Math.min(duration || endRaw, Math.max(start + 10, endRaw));
+    const title = String(c.title ?? "Untitled clip").slice(0, 140);
+    const hook = String(c.hook ?? title).slice(0, 240);
+    const strategy = c.strategy ?? {};
+    return {
+      project_id: projectId,
+      user_id: userId,
+      title,
+      hook,
+      description: String(c.description ?? "").slice(0, 500),
+      hashtags: Array.isArray(c.hashtags)
+        ? c.hashtags.map((h: string) => String(h).replace(/^#/, "").toLowerCase()).slice(0, 10)
+        : [],
+      emotion: c.emotion ?? "Curiosity",
+      viral_score: Math.min(99, Math.max(50, Math.round(Number(c.viral_score) || 75))),
+      score_reasons: Array.isArray(c.score_reasons) ? c.score_reasons : [],
+      start_sec: start,
+      end_sec: end,
+      aspect_ratio: "9:16",
+      thumbnail_url: `https://i.ytimg.com/vi/${hookVideoId}/maxresdefault.jpg`,
+      strategy: {
+        retention_pct: Math.min(99, Math.max(40, Math.round(Number(strategy.retention_pct) || 85))),
+        hook_strength: strategy.hook_strength ?? "Strong",
+        story_arc: strategy.story_arc ?? "Completed",
+        platform: strategy.platform ?? "TikTok",
+        upload_time: strategy.upload_time ?? "8 PM",
+        audience: strategy.audience ?? "Creators",
+        watch_time_sec: Math.round(Number(strategy.watch_time_sec) || end - start),
+        thumbnail: "Included",
+        narrative:
+          strategy.narrative ??
+          "Opens with a strong curiosity gap and pays off cleanly within the clip window.",
+        hook_alternatives: Array.isArray(strategy.hook_alternatives)
+          ? strategy.hook_alternatives.slice(0, 3)
+          : [hook],
+        thumbnails: defaultThumbs(hook),
+      },
+    };
+  });
+}
+
+export const getProjectCaptionTracks = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => Input.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { projectId } = data;
+
+    const { data: project, error } = await supabase
+      .from("projects")
+      .select("id, source_url, youtube_id")
+      .eq("id", projectId)
+      .eq("user_id", userId)
+      .single();
+    if (error || !project) throw new Error("Project not found");
+
+    const videoId = project.youtube_id ?? (project.source_url ? extractYouTubeId(project.source_url) : null);
+    if (!videoId) throw new Error("Could not parse YouTube video ID");
+
+    const tracks = await listCaptionTracks(videoId);
+    return { videoId, tracks };
+  });
+
+export const analyzeProjectWithTranscript = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => TranscriptInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { projectId, segments } = data;
+
+    const { data: project, error: pErr } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("id", projectId)
+      .eq("user_id", userId)
+      .single();
+    if (pErr || !project) throw new Error("Project not found");
+
+    const videoId = project.youtube_id ?? (project.source_url ? extractYouTubeId(project.source_url) : null);
+    if (!videoId) throw new Error("Could not parse YouTube video ID");
+
+    const setStep = async (step: string, progress: number) => {
+      await supabase.from("projects").update({ current_step: step, progress }).eq("id", projectId);
+    };
+
+    try {
+      await setStep(STEPS[2], 28);
+      const sortedSegments = [...segments].sort((a, b) => a.start - b.start);
+      const last = sortedSegments[sortedSegments.length - 1];
+      const duration = Math.round(last.start + last.dur);
+
+      await supabase
+        .from("projects")
+        .update({
+          youtube_id: videoId,
+          transcript: sortedSegments as any,
+          duration_sec: duration,
+          status: "processing",
+          last_error: null,
+        })
+        .eq("id", projectId);
+
+      await setStep(STEPS[3], 42);
+      const transcriptText = chunkTranscript(sortedSegments);
+      const safe = transcriptText.length > 120000 ? transcriptText.slice(0, 120000) : transcriptText;
+
+      await setStep(STEPS[4], 58);
+      const result = await callGemini(safe, project.title);
+      const rawClips: any[] = Array.isArray(result.clips) ? result.clips : [];
+      if (!rawClips.length) throw new Error("AI did not return any clips. Try a different video.");
+
+      await setStep(STEPS[5], 68);
+      await setStep(STEPS[6], 76);
+      await setStep(STEPS[7], 82);
+      await setStep(STEPS[8], 88);
+      await setStep(STEPS[9], 92);
+      await setStep(STEPS[10], 95);
+      await setStep(STEPS[11], 98);
+
+      await supabase.from("clips").delete().eq("project_id", projectId).eq("user_id", userId);
+
+      const rows = normalizeClipRows({ rawClips, duration, hookVideoId: videoId, projectId, userId });
+      const { error: insErr } = await supabase.from("clips").insert(rows as any);
+      if (insErr) throw new Error(`Failed to save clips: ${insErr.message}`);
+
+      await setStep(STEPS[12], 100);
+      await supabase
+        .from("projects")
+        .update({ status: "completed", progress: 100, last_error: null })
+        .eq("id", projectId);
+
+      return { ok: true, count: rows.length };
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      await supabase.from("projects").update({ status: "failed", last_error: msg }).eq("id", projectId);
+      throw new Error(msg);
+    }
+  });
+
 export const analyzeProject = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => Input.parse(d))
@@ -353,48 +607,7 @@ export const analyzeProject = createServerFn({ method: "POST" })
       await setStep(STEPS[10], 93);
       await setStep(STEPS[11], 96);
 
-      const rows = rawClips.slice(0, 12).map((c) => {
-        const start = Math.max(0, Math.floor(Number(c.start_sec) || 0));
-        const endRaw = Math.floor(Number(c.end_sec) || start + 30);
-        const end = Math.min(duration || endRaw, Math.max(start + 10, endRaw));
-        const title = String(c.title ?? "Untitled clip").slice(0, 140);
-        const hook = String(c.hook ?? title).slice(0, 240);
-        const strategy = c.strategy ?? {};
-        return {
-          project_id: projectId,
-          user_id: userId,
-          title,
-          hook,
-          description: String(c.description ?? "").slice(0, 500),
-          hashtags: Array.isArray(c.hashtags)
-            ? c.hashtags.map((h: string) => String(h).replace(/^#/, "").toLowerCase()).slice(0, 10)
-            : [],
-          emotion: c.emotion ?? "Curiosity",
-          viral_score: Math.min(99, Math.max(50, Math.round(Number(c.viral_score) || 75))),
-          score_reasons: Array.isArray(c.score_reasons) ? c.score_reasons : [],
-          start_sec: start,
-          end_sec: end,
-          aspect_ratio: "9:16",
-          thumbnail_url: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
-          strategy: {
-            retention_pct: Math.min(99, Math.max(40, Math.round(Number(strategy.retention_pct) || 85))),
-            hook_strength: strategy.hook_strength ?? "Strong",
-            story_arc: strategy.story_arc ?? "Completed",
-            platform: strategy.platform ?? "TikTok",
-            upload_time: strategy.upload_time ?? "8 PM",
-            audience: strategy.audience ?? "Creators",
-            watch_time_sec: Math.round(Number(strategy.watch_time_sec) || end - start),
-            thumbnail: "Included",
-            narrative:
-              strategy.narrative ??
-              "Opens with a strong curiosity gap and pays off cleanly within the clip window.",
-            hook_alternatives: Array.isArray(strategy.hook_alternatives)
-              ? strategy.hook_alternatives.slice(0, 3)
-              : [hook],
-            thumbnails: defaultThumbs(hook),
-          },
-        };
-      });
+      const rows = normalizeClipRows({ rawClips, duration, hookVideoId: videoId, projectId, userId });
 
       const { error: insErr } = await supabase.from("clips").insert(rows as any);
       if (insErr) throw new Error(`Failed to save clips: ${insErr.message}`);
